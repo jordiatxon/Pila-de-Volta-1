@@ -1,13 +1,12 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { GoogleGenAI, Type } from "@google/genai";
 
 // --- Constants & Types ---
 const RAIL_TOTAL_LENGTH = 2040;
 const CONDUCTOR_WIDTH = 15;
 const OUTER_WIDTH = 650;
 const OUTER_HEIGHT = 400;
-const INNER_WIDTH = 620;
-const INNER_HEIGHT = 370;
 const BATTERY_WIDTH = 150;
 const BATTERY_HEIGHT = 75;
 const NUM_ELECTRONS = 1000;
@@ -29,33 +28,182 @@ interface Electron {
   vibeDuration: number;
 }
 
+interface Message {
+  role: 'user' | 'model';
+  text: string;
+}
+
 // --- Helper Functions ---
 
-/**
- * Maps linear track position to 2D coordinates.
- * Rail starts at top center and goes clockwise.
- */
 const getXY = (trackPos: number, transPos: number): Point => {
   let p = trackPos % RAIL_TOTAL_LENGTH;
   if (p < 0) p += RAIL_TOTAL_LENGTH;
 
-  const s1 = 317.5; // Top Right: (325, 7.5) -> (642.5, 7.5)
-  const s2 = 385;   // Right: (642.5, 7.5) -> (642.5, 392.5)
-  const s3 = 635;   // Bottom: (642.5, 392.5) -> (7.5, 392.5)
-  const s4 = 385;   // Left: (7.5, 392.5) -> (7.5, 7.5)
+  const s1 = 317.5; 
+  const s2 = 385;   
+  const s3 = 635;   
+  const s4 = 385;   
 
-  if (p < s1) { // Top Right
+  if (p < s1) {
     return { x: 325 + p, y: 7.5 + transPos, segment: 'top' };
-  } else if (p < s1 + s2) { // Right
+  } else if (p < s1 + s2) {
     return { x: 642.5 - transPos, y: 7.5 + (p - s1), segment: 'right' };
-  } else if (p < s1 + s2 + s3) { // Bottom
+  } else if (p < s1 + s2 + s3) {
     return { x: 642.5 - (p - (s1 + s2)), y: 392.5 - transPos, segment: 'bottom' };
-  } else if (p < s1 + s2 + s3 + s4) { // Left
+  } else if (p < s1 + s2 + s3 + s4) {
     return { x: 7.5 + transPos, y: 392.5 - (p - (s1 + s2 + s3)), segment: 'left' };
-  } else { // Top Left
+  } else {
     return { x: 7.5 + (p - (s1 + s2 + s3 + s4)), y: 7.5 + transPos, segment: 'top' };
   }
 };
+
+// --- Docent Component ---
+
+const Docent: React.FC = () => {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: 'model',
+      text: "Has construït una pila de Volta que genera el corrent elèctric que encén el LED. Disposes d’una representació animada. El teu repte és comprendre i explicar com funciona tot plegat. Comença observant i descrivint amb frases curtes els sis fets que es produeixen simultàniament. Després redacta una explicació general. Llegeix el vocabulari, pregunta el que vulguis."
+    }
+  ]);
+  const [inputValue, setInputValue] = useState('');
+  const [isPart2, setIsPart2] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Maintain focus on the input field
+  useEffect(() => {
+    inputRef.current?.focus();
+  });
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleSend = async () => {
+    if (!inputValue.trim() || isLoading) return;
+
+    const userText = inputValue.trim();
+    const newMessages: Message[] = [...messages, { role: 'user', text: userText }];
+    setMessages(newMessages);
+    setInputValue('');
+    setIsLoading(true);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const systemInstruction = `Ets un docent expert en física que guia un alumne per entendre la pila de Volta. 
+      L'alumne veu una simulació amb: pila, conductor, electrons, ions de zinc, electròlit i camp elèctric.
+      
+      ESTAT ACTUAL: ${isPart2 ? 'SEGONA PART (Explicació general del circuit)' : 'PRIMERA PART (Identificació de 6 fets)'}.
+      
+      ELS 6 FETS A IDENTIFICAR A LA PRIMERA PART:
+      1) Es crea un camp elèctric (representat per línies liles perpendiculars).
+      2) Els ions positius de zinc desapareixen.
+      3) L'electròlit es gasta (baixa el nivell blau de la bateria).
+      4) Apareixen nous electrons a la pila que passen al conductor pel pol negatiu.
+      5) Es crea un corrent d'electrons continu que va del pol negatiu al positiu.
+      6) El LED s'encén.
+
+      INSTRUCCIONS DE RESPOSTA:
+      - Respon sempre en català.
+      - A la PRIMERA PART: Les teves respostes han de ser CURTES. Avalua si l'alumne ha descrit algun dels 6 fets. Valida els que trobi i anima'l a trobar els que falten. Quan hagi identificat els sis fets, digues-li que ja pot passar a la segona part per fer l'explicació general.
+      - A la SEGONA PART: Demana una descripció general del funcionament de tot el circuit. Avalua si l'explicació conté el vocabulari (pila, conductor, electrons, camp, electròlit) i si té coherència semàntica. Si l'avaluació és positiva, acomiada't cordialment.
+      
+      Torna la teva resposta en format JSON amb el següent esquema:
+      {
+        "responseText": "la teva resposta al alumne",
+        "allFactsIdentified": boolean,
+        "isExplanationGood": boolean
+      }`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: newMessages.map(m => ({ parts: [{ text: m.text }], role: m.role })),
+        config: {
+          systemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              responseText: { type: Type.STRING },
+              allFactsIdentified: { type: Type.BOOLEAN },
+              isExplanationGood: { type: Type.BOOLEAN }
+            },
+            required: ["responseText", "allFactsIdentified", "isExplanationGood"]
+          }
+        }
+      });
+
+      const result = JSON.parse(response.text);
+      setMessages([...newMessages, { role: 'model', text: result.responseText }]);
+      
+      if (result.allFactsIdentified && !isPart2) {
+        setIsPart2(true);
+      }
+    } catch (error) {
+      console.error(error);
+      setMessages([...newMessages, { role: 'model', text: "Error en la comunicació. Torna-ho a provar." }]);
+    } finally {
+      setIsLoading(false);
+      // Ensure input gets focused again
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  };
+
+  const contextualInfo = isPart2 
+    ? "ara redacta una explicació general del funcionament del circuit usant el vocabulari correcte."
+    : "descriu un o més dels sis fets que observes simultàniament a la simulació.";
+
+  return (
+    <div className="flex flex-col h-full bg-black border-r border-blue-600">
+      {/* Messages area - Arial 14 */}
+      <div 
+        ref={scrollRef}
+        className="flex-1 p-4 overflow-y-auto space-y-4 font-['Arial'] text-[14px]"
+      >
+        {messages.map((m, i) => (
+          <div key={i} className="w-full">
+            <div className={`p-4 rounded-lg w-full ${m.role === 'user' ? 'bg-blue-900/30 text-white text-right' : 'bg-zinc-800 text-white'}`}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {isLoading && <div className="text-zinc-500 animate-pulse italic text-[14px] p-2">...</div>}
+      </div>
+
+      {/* Input area */}
+      <div className="p-4 border-t border-blue-600 bg-black w-full">
+        <p className="text-[11px] text-blue-500 mb-2 font-['Arial'] lowercase leading-tight">
+          {contextualInfo}
+        </p>
+        <div className="w-full">
+          <input 
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            autoFocus
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Escriu aquí i prem Enter..."
+            className="w-full bg-black border border-zinc-700 rounded px-4 py-4 text-white focus:outline-none focus:border-blue-500 font-['Arial'] text-[14px]"
+          />
+        </div>
+      </div>
+
+      {/* Credits Section */}
+      <div className="h-[50px] border-t border-blue-600 flex items-center px-4 shrink-0">
+        <p className="font-['Arial'] text-[10px] text-zinc-500">
+          Jordi Achón, 2026. Llicència: CC BY-NC 4.0. Fet amb Google AI Studio.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// --- B1 Component ---
 
 const B1Circuit: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -67,7 +215,7 @@ const B1Circuit: React.FC = () => {
       id: i,
       trackPos: Math.random() * RAIL_TOTAL_LENGTH,
       transPos: Math.random() * 15 - 7.5,
-      vibeDelay: Math.random() * -2, // Negative delay to desynchronize
+      vibeDelay: Math.random() * -2,
       vibeDuration: 0.3 + Math.random() * 0.4
     }))
   );
@@ -162,12 +310,10 @@ const B1Circuit: React.FC = () => {
 
   const bulbColor = (isOpen && !isDepleted) ? '#fbbf24' : '#d1d5db';
 
-  // Generate field lines every 40px
   const fieldLinesGenerated = useMemo(() => {
     const lines = [];
     for (let p = 0; p < RAIL_TOTAL_LENGTH; p += 40) {
       const pos = getXY(p, 0);
-      // Skip lines overlapping the battery
       if (pos.segment === 'top' && pos.x >= 250 && pos.x <= 400) continue;
       lines.push(pos);
     }
@@ -176,12 +322,11 @@ const B1Circuit: React.FC = () => {
 
   return (
     <div className="relative w-full h-full flex flex-col items-center justify-center pt-[25px]">
-      <h1 className="font-arial-14 text-center mb-8 uppercase absolute top-[25px] w-full">
+      <h1 className="font-['Arial'] text-[16px] font-bold text-center mb-8 uppercase absolute top-[25px] w-full">
         REPRESENTACIÓ DEL CIRCUIT DE CORRENT CONTINU
       </h1>
       
       <div className="relative" style={{ width: OUTER_WIDTH, height: OUTER_HEIGHT }}>
-        {/* Bulb */}
         <div 
           className="absolute rounded-full transition-colors duration-300"
           style={{
@@ -192,7 +337,6 @@ const B1Circuit: React.FC = () => {
           }}
         />
 
-        {/* Conductor Path */}
         <div 
           className="absolute border-[15px] border-white"
           style={{
@@ -202,17 +346,19 @@ const B1Circuit: React.FC = () => {
           }}
         />
 
-        {/* Electrons Layer */}
         <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 3 }}>
           {electrons.map(e => {
             const pos = getXY(e.trackPos, e.transPos);
             const isUnderBattery = pos.x >= 250 && pos.x <= 400 && pos.y >= -30 && pos.y <= 45;
             const isUnderSwitch = !isOpen && pos.x > 400 && pos.x < 430 && pos.y < 20;
             if (isUnderBattery || isUnderSwitch) return null;
+            
+            const isVibrating = !isOpen || isDepleted;
+            
             return (
               <div 
                 key={e.id}
-                className={`absolute bg-red-600 rounded-full ${!isOpen ? 'vibrating' : ''}`}
+                className={`absolute bg-red-600 rounded-full ${isVibrating ? 'vibrating' : ''}`}
                 style={{
                   width: 2, height: 2,
                   left: pos.x,
@@ -226,7 +372,6 @@ const B1Circuit: React.FC = () => {
           })}
         </div>
 
-        {/* Electric Field (Perpendicular) at 40px intervals */}
         {(isOpen && !isDepleted) && fieldLinesGenerated.map((f, i) => {
           const isVert = f.segment === 'top' || f.segment === 'bottom';
           return (
@@ -244,7 +389,6 @@ const B1Circuit: React.FC = () => {
           );
         })}
 
-        {/* Battery Container */}
         <div 
           className="absolute flex bg-white"
           style={{
@@ -258,7 +402,7 @@ const B1Circuit: React.FC = () => {
             {ions.slice(0, ionsCount).map((ion, i) => (
               <span 
                 key={i} 
-                className="absolute text-blue-600 font-arial-12 font-bold leading-none pointer-events-none"
+                className="absolute text-blue-600 font-['Arial'] text-[12px] font-bold leading-none pointer-events-none"
                 style={{ left: ion.x, top: ion.y }}
               >+</span>
             ))}
@@ -294,7 +438,6 @@ const B1Circuit: React.FC = () => {
           </div>
         </div>
 
-        {/* Switch Polsador */}
         {!isOpen && (
           <div 
             className="absolute bg-black"
@@ -306,11 +449,10 @@ const B1Circuit: React.FC = () => {
           />
         )}
 
-        {/* Toggle Button styled more like a button and centered relative to the conductor frame */}
-        <div className="absolute w-full flex justify-center" style={{ top: '55%', zIndex: 20 }}>
+        <div className="absolute w-full flex justify-center" style={{ top: 'calc(55% - 30px)', zIndex: 20 }}>
             <button 
               onClick={handleToggle}
-              className="bg-black/80 border-2 border-white rounded-xl px-8 py-4 hover:bg-white hover:text-black transition-all active:scale-95 shadow-lg"
+              className="bg-black/80 border-2 border-white rounded-xl px-8 py-4 hover:text-blue-500 transition-all active:scale-95 shadow-lg"
               style={{
                 fontFamily: 'Arial',
                 fontSize: 16,
@@ -326,19 +468,15 @@ const B1Circuit: React.FC = () => {
   );
 };
 
+// --- App Component ---
+
 const App: React.FC = () => {
   return (
     <div className="flex h-screen w-screen bg-black text-white font-['Arial'] overflow-hidden text-[12px]">
       
-      {/* Part A - Left 1/3 */}
-      <div className="w-1/3 flex flex-col border-r border-blue-600 h-full">
-        <div className="h-[90%] p-4 overflow-auto">
-        </div>
-        <div className="h-[10%] border-t border-blue-600 flex items-center px-4">
-          <p className="font-arial-10">
-            Jordi Achón, 2026. Llicència: CC BY-NC 4.0. Fet amb Google AI Studio.
-          </p>
-        </div>
+      {/* Part A - Left 1/3: Docent Dialog */}
+      <div className="w-1/3 flex flex-col h-full overflow-hidden">
+        <Docent />
       </div>
 
       {/* Part B - Right 2/3 */}
@@ -347,8 +485,9 @@ const App: React.FC = () => {
           <B1Circuit />
         </div>
         <div className="h-1/4 flex w-full">
+          {/* B21: Image and descriptions */}
           <div className="flex-1 border-r border-blue-600 p-4 flex items-center gap-4 overflow-hidden">
-            <div className="h-full flex items-center justify-center">
+            <div className="h-full flex items-center justify-center shrink-0">
               <img 
                 src="https://lh3.googleusercontent.com/d/1HFw-JhMw3t9PI4G9zmVnNdBcgWbMdb6-" 
                 alt="Pila de Volta"
@@ -358,7 +497,7 @@ const App: React.FC = () => {
                 }}
               />
             </div>
-            <div className="font-arial-12 flex flex-col justify-center space-y-1">
+            <div className="text-[12px] flex flex-col justify-center space-y-1 font-['Arial']">
               <p>Pîla de Volta.</p>
               <p>Monedes de 2 cèntims escalfades (Òxid de Coure).</p>
               <p>Cartolina xopada amb vinagre.</p>
@@ -367,32 +506,32 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex-1 p-4 overflow-y-auto">
-            <h2 className="font-arial-12 font-bold mb-2">Vocabulari del circuit:</h2>
+          {/* B22: Legend and Vocabulary */}
+          <div className="flex-1 p-4 overflow-y-auto text-[12px] font-['Arial']">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <div className="w-[2px] h-[2px] rounded-full bg-red-600"></div>
-                <span className="font-arial-12">Electrons lliures del conductor.</span>
+                <span>Electrons lliures del conductor.</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-[2px] h-[2px] rounded-full bg-red-600"></div>
-                <span className="font-arial-12">Electrons alliberats per la química de la bateria.</span>
+                <span>Electrons alliberats per la química de la bateria.</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-arial-15 text-blue-600 font-bold leading-none">+</span>
-                <span className="font-arial-12">Ions del Zinc.</span>
+                <span className="text-blue-600 font-bold leading-none text-[15px]">+</span>
+                <span>Ions del Zinc.</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-[6px] h-[6px] bg-gray-500"></div>
-                <span className="font-arial-12">Zinc</span>
+                <span>Zinc</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-[6px] h-[6px] bg-pink-400"></div>
-                <span className="font-arial-12">Coure</span>
+                <span>Coure</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-[6px] h-[6px] bg-blue-600"></div>
-                <span className="font-arial-12">Electròlit</span>
+                <span>Electròlit</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex gap-1 items-center">
@@ -400,7 +539,7 @@ const App: React.FC = () => {
                   <div className="w-[1px] h-[10px] bg-purple-600"></div>
                   <div className="w-[1px] h-[10px] bg-purple-600"></div>
                 </div>
-                <span className="font-arial-12">Camp Elèctric.</span>
+                <span>Camp Elèctric.</span>
               </div>
             </div>
           </div>
