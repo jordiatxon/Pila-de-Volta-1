@@ -2,9 +2,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 
-// --- Constants & Types ---
+// --- Constants i Tipus ---
 const RAIL_TOTAL_LENGTH = 2040;
-const CONDUCTOR_WIDTH = 15;
 const OUTER_WIDTH = 650;
 const OUTER_HEIGHT = 400;
 const BATTERY_WIDTH = 150;
@@ -33,8 +32,6 @@ interface Message {
   text: string;
 }
 
-// --- Helper Functions ---
-
 const getXY = (trackPos: number, transPos: number): Point => {
   let p = trackPos % RAIL_TOTAL_LENGTH;
   if (p < 0) p += RAIL_TOTAL_LENGTH;
@@ -57,8 +54,6 @@ const getXY = (trackPos: number, transPos: number): Point => {
   }
 };
 
-// --- Docent Component ---
-
 const Docent: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -72,7 +67,6 @@ const Docent: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Maintain focus on the input field
   useEffect(() => {
     inputRef.current?.focus();
   });
@@ -100,24 +94,19 @@ const Docent: React.FC = () => {
       ESTAT ACTUAL: ${isPart2 ? 'SEGONA PART (Explicació general del circuit)' : 'PRIMERA PART (Identificació de 6 fets)'}.
       
       ELS 6 FETS A IDENTIFICAR A LA PRIMERA PART:
-      1) Es crea un camp elèctric (representat per línies liles perpendiculars).
+      1) Es crea un camp elèctric (línies liles).
       2) Els ions positius de zinc desapareixen.
-      3) L'electròlit es gasta (baixa el nivell blau de la bateria).
-      4) Apareixen nous electrons a la pila que passen al conductor pel pol negatiu.
-      5) Es crea un corrent d'electrons continu que va del pol negatiu al positiu.
+      3) L'electròlit es gasta (baixa el nivell blau).
+      4) Apareixen nous electrons a la pila que passen al conductor.
+      5) Es crea un corrent d'electrons continu de pol negatiu a positiu.
       6) El LED s'encén.
 
-      INSTRUCCIONS DE RESPOSTA:
+      INSTRUCCIONS:
       - Respon sempre en català.
-      - A la PRIMERA PART: Les teves respostes han de ser CURTES. Avalua si l'alumne ha descrit algun dels 6 fets. Valida els que trobi i anima'l a trobar els que falten. Quan hagi identificat els sis fets, digues-li que ja pot passar a la segona part per fer l'explicació general.
-      - A la SEGONA PART: Demana una descripció general del funcionament de tot el circuit. Avalua si l'explicació conté el vocabulari (pila, conductor, electrons, camp, electròlit) i si té coherència semàntica. Si l'avaluació és positiva, acomiada't cordialment.
+      - PRIMERA PART: Respostes curtes. Valida els fets que trobi i anima'l a trobar els que falten. Quan els tingui tots, convida'l a la segona part.
+      - SEGONA PART: Demana explicació general. Avalua vocabulari i coherència. Acomiada't si és correcte.
       
-      Torna la teva resposta en format JSON amb el següent esquema:
-      {
-        "responseText": "la teva resposta al alumne",
-        "allFactsIdentified": boolean,
-        "isExplanationGood": boolean
-      }`;
+      Torna un JSON: { "responseText": string, "allFactsIdentified": boolean, "isExplanationGood": boolean }`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
@@ -145,11 +134,10 @@ const Docent: React.FC = () => {
       }
     } catch (error) {
       console.error(error);
-      setMessages([...newMessages, { role: 'model', text: "Error en la comunicació. Torna-ho a provar." }]);
+      setMessages([...newMessages, { role: 'model', text: "Error de connexió. Recorda que cal una clau d'API vàlida." }]);
     } finally {
       setIsLoading(false);
-      // Ensure input gets focused again
-      setTimeout(() => inputRef.current?.focus(), 0);
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
   };
 
@@ -159,7 +147,6 @@ const Docent: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-black border-r border-blue-600">
-      {/* Messages area - Arial 14 */}
       <div 
         ref={scrollRef}
         className="flex-1 p-4 overflow-y-auto space-y-4 font-['Arial'] text-[14px]"
@@ -174,7 +161,6 @@ const Docent: React.FC = () => {
         {isLoading && <div className="text-zinc-500 animate-pulse italic text-[14px] p-2">...</div>}
       </div>
 
-      {/* Input area */}
       <div className="p-4 border-t border-blue-600 bg-black w-full">
         <p className="text-[11px] text-blue-500 mb-2 font-['Arial'] lowercase leading-tight">
           {contextualInfo}
@@ -193,7 +179,6 @@ const Docent: React.FC = () => {
         </div>
       </div>
 
-      {/* Credits Section */}
       <div className="h-[50px] border-t border-blue-600 flex items-center px-4 shrink-0">
         <p className="font-['Arial'] text-[10px] text-zinc-500">
           Jordi Achón, 2026. Llicència: CC BY-NC 4.0. Fet amb Google AI Studio.
@@ -202,8 +187,6 @@ const Docent: React.FC = () => {
     </div>
   );
 };
-
-// --- B1 Component ---
 
 const B1Circuit: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -232,11 +215,8 @@ const B1Circuit: React.FC = () => {
   };
 
   const handleToggle = () => {
-    if (isDepleted) {
-      resetBattery();
-    } else {
-      setIsOpen(!isOpen);
-    }
+    if (isDepleted) resetBattery();
+    else setIsOpen(!isOpen);
   };
 
   const animate = (time: number) => {
@@ -276,16 +256,11 @@ const B1Circuit: React.FC = () => {
 
   const ions = useMemo(() => {
     const res = [];
-    const cols = 15;
-    const rows = 5;
-    const cellW = 50 / cols;
-    const cellH = 75 / rows;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        res.push({ 
-          x: c * cellW + (cellW / 2) - 4,
-          y: r * cellH + (cellH / 2) - 6
-        });
+    const cellW = 50 / 15;
+    const cellH = 75 / 5;
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 15; c++) {
+        res.push({ x: c * cellW + (cellW / 2) - 4, y: r * cellH + (cellH / 2) - 6 });
       }
     }
     return res;
@@ -422,12 +397,7 @@ const B1Circuit: React.FC = () => {
                  <div 
                   key={be.id}
                   className="absolute bg-red-600 rounded-full"
-                  style={{
-                    width: 3, height: 3,
-                    left: currX,
-                    top: currY,
-                    opacity: 1 - progress
-                  }}
+                  style={{ width: 3, height: 3, left: currX, top: currY, opacity: 1 - progress }}
                  />
                );
              })}
@@ -441,11 +411,7 @@ const B1Circuit: React.FC = () => {
         {!isOpen && (
           <div 
             className="absolute bg-black"
-            style={{
-              width: 30, height: 20,
-              left: 400, top: 7.5 - 10,
-              zIndex: 11
-            }}
+            style={{ width: 30, height: 20, left: 400, top: 7.5 - 10, zIndex: 11 }}
           />
         )}
 
@@ -453,12 +419,7 @@ const B1Circuit: React.FC = () => {
             <button 
               onClick={handleToggle}
               className="bg-black/80 border-2 border-white rounded-xl px-8 py-4 hover:text-blue-500 transition-all active:scale-95 shadow-lg"
-              style={{
-                fontFamily: 'Arial',
-                fontSize: 16,
-                color: 'white',
-                minWidth: '280px'
-              }}
+              style={{ fontFamily: 'Arial', fontSize: 16, color: 'white', minWidth: '280px' }}
             >
               {isDepleted ? "Bateria esgotada. Torna a carregar-la." : "Clic per obrir/tancar el circuit"}
             </button>
@@ -468,45 +429,33 @@ const B1Circuit: React.FC = () => {
   );
 };
 
-// --- App Component ---
-
 const App: React.FC = () => {
   return (
     <div className="flex h-screen w-screen bg-black text-white font-['Arial'] overflow-hidden text-[12px]">
-      
-      {/* Part A - Left 1/3: Docent Dialog */}
       <div className="w-1/3 flex flex-col h-full overflow-hidden">
         <Docent />
       </div>
-
-      {/* Part B - Right 2/3 */}
       <div className="w-2/3 flex flex-col h-full">
         <div className="h-3/4 border-b border-blue-600 overflow-hidden bg-black">
           <B1Circuit />
         </div>
         <div className="h-1/4 flex w-full">
-          {/* B21: Image and descriptions */}
           <div className="flex-1 border-r border-blue-600 p-4 flex items-center gap-4 overflow-hidden">
             <div className="h-full flex items-center justify-center shrink-0">
               <img 
                 src="https://lh3.googleusercontent.com/d/1HFw-JhMw3t9PI4G9zmVnNdBcgWbMdb6-" 
                 alt="Pila de Volta"
                 className="max-h-full object-contain"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = 'https://drive.google.com/uc?export=view&id=1HFw-JhMw3t9PI4G9zmVnNdBcgWbMdb6-';
-                }}
               />
             </div>
             <div className="text-[12px] flex flex-col justify-center space-y-1 font-['Arial']">
-              <p>Pîla de Volta.</p>
+              <p>Pila de Volta.</p>
               <p>Monedes de 2 cèntims escalfades (Òxid de Coure).</p>
               <p>Cartolina xopada amb vinagre.</p>
               <p>Volanderes cincades (Zinc).</p>
               <p>LED.</p>
             </div>
           </div>
-
-          {/* B22: Legend and Vocabulary */}
           <div className="flex-1 p-4 overflow-y-auto text-[12px] font-['Arial']">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
